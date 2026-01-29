@@ -38,11 +38,17 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ], [
+      "expo-camera",
+      {
+        "cameraPermission": "Allow Smart Grocery to access your camera to scan receipts."
+      }
+    ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     }
   }
+ 
 }
