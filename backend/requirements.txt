@@ -7,7 +7,9 @@ flask-cors==6.0.2
 itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
+Pillow  
 pymongo==4.16.0
 python-dotenv==1.2.1
 pytesseract==0.3.13
+requests 
 Werkzeug==3.1.5
