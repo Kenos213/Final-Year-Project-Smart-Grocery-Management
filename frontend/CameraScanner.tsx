@@ -5,7 +5,8 @@ import {
     Vibration, Alert, ActivityIndicator, Button 
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { core_URL } from './HostIp';
+import { core_URL } from '../frontend/app/HostIp';
+
 
 export default function CameraScanner() {
     const [permission, requestPermission] = useCameraPermissions();
@@ -25,7 +26,9 @@ export default function CameraScanner() {
         );
     }
 
-  
+    // =========================================================================
+    // BARCODE SCANNING — individual product lookup via Open Food Facts
+    // =========================================================================
     const handleScan = async ({ data }: { data: string }) => {
         if (isLocked.current) return;
         isLocked.current = true;
@@ -67,7 +70,9 @@ export default function CameraScanner() {
         }
     };
 
-   
+    // =========================================================================
+    // RECEIPT SCANNING — OCR.space + Gemini text extraction
+    // =========================================================================
     const captureReceipt = async () => {
         if (!cameraRef.current) return;
 
@@ -76,7 +81,7 @@ export default function CameraScanner() {
 
             const photo = await cameraRef.current.takePictureAsync({
                 base64: true,
-                quality: 0.5,
+                quality: 0.4,
             });
 
             let base64Image = photo.base64 || '';
@@ -119,10 +124,10 @@ export default function CameraScanner() {
     return (
         <View style={styles.container}>
 
-          
+            {/* Close button */}
             <TouchableOpacity 
                 style={styles.closeBtn} 
-                onPress={() => router.replace('/')}
+                onPress={() => router.back()}
             >
                 <Text style={styles.closeText}>✕</Text>
             </TouchableOpacity>
@@ -136,7 +141,7 @@ export default function CameraScanner() {
                     barcodeTypes: ["ean13", "ean8", "qr", "code128", "upc_a"]
                 }}
             >
-               
+                {/* Loading overlay */}
                 {loading && (
                     <View style={styles.loaderOverlay}>
                         <ActivityIndicator size="large" color="#00FF00" />
@@ -144,7 +149,7 @@ export default function CameraScanner() {
                     </View>
                 )}
 
-             
+                {/* MODE: CHOICE */}
                 {cameraMode === 'CHOICE' && !loading && (
                     <View style={styles.choiceOverlay}>
                         <Text style={styles.choiceTitle}>What would you like to scan?</Text>
@@ -170,7 +175,7 @@ export default function CameraScanner() {
                     </View>
                 )}
 
-          
+                {/* MODE: BARCODE */}
                 {cameraMode === 'BARCODE' && !loading && (
                     <View style={styles.overlay}>
                         <View style={styles.box} />
@@ -187,7 +192,7 @@ export default function CameraScanner() {
                     </View>
                 )}
 
-               
+                {/* MODE: PHOTO */}
                 {cameraMode === 'PHOTO' && !loading && (
                     <View style={styles.photoOverlay}>
                         <Text style={styles.photoHint}>

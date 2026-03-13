@@ -1,92 +1,170 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Button, Alert } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import {core_URL} from './HostIp'
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import ProductCard from './components/ProductCard';
+
+
 
 export default function ReviewScreen() {
- 
-  const navigation = useNavigation<any>();
-  const route = useRoute<any>();
+  const router = useRouter();
+  const { scannedItems: rawItems } = useLocalSearchParams();
+
   
-  const { scannedItems } = route.params || { scannedItems: [] };
-  
-  const [items, setItems] = useState(scannedItems);
-  
+  const parsed = rawItems ? JSON.parse(rawItems as string) : [];
+  const [items, setItems] = useState(parsed);
 
 
-  const handleSave = async () => {
-    try {
-      const response = await fetch(`${core_URL}/inventory/add`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: items }),
-      });
-
-      const result = await response.json();
-
-      if (result.status === 'success') {
-          Alert.alert("Success", "Items added to Inventory!");
-        
-          navigation.navigate('CameraScanner'); 
-      }
-    } catch (error) {
-      Alert.alert("Error", "Could not connect to backend.");
-      console.log(error);
-    }
+  const handleSave = () => {
+    router.push({
+      pathname: '/ExpiryScreen',
+      params: { confirmedItems: JSON.stringify(items) },
+    });
   };
 
-
   const handleDelete = (index: number) => {
-      const newList = [...items];
-      newList.splice(index, 1);
-      setItems(newList);
+    const updated = [...items];
+    updated.splice(index, 1);
+    setItems(updated);
   };
 
   return (
     <View style={styles.container}>
+     
       <Text style={styles.header}>Confirm Items</Text>
-      
-      <ScrollView style={styles.list}>
-        {items.length === 0 && <Text style={styles.empty}>No items found.</Text>}
-        
+      <Text style={styles.subheader}>
+        {items.length} {items.length === 1 ? 'item' : 'items'} detected
+      </Text>
+
+   
+      <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+        {items.length === 0 && (
+          <Text style={styles.empty}>No items found. Try scanning again.</Text>
+        )}
+
         {items.map((item: any, index: number) => (
-          <View key={index} style={styles.itemRow}>
-            <View style={styles.textContainer}>
-                <Text style={styles.name}>{item.name}</Text>
-                <Text style={styles.brand}>{item.brand || "Unknown Brand"}</Text>
-            </View>
-            
-            <TouchableOpacity onPress={() => handleDelete(index)}>
-                <Text style={styles.deleteBtn}>Delete</Text>
-            </TouchableOpacity>
-          </View>
+          <ProductCard
+            key={index}
+            name={item.name}
+            brand={item.brand}
+            price={item.price}
+            category={item.category}
+            image_url={item.image_url}
+            rightAction={
+              <TouchableOpacity
+                onPress={() => handleDelete(index)}
+                style={styles.deleteButton}
+              >
+                <Text style={styles.deleteBtnText}>✕</Text>
+              </TouchableOpacity>
+            }
+          />
         ))}
       </ScrollView>
 
+     
       <View style={styles.footer}>
-        <Button title="Add to Inventory" onPress={handleSave} disabled={items.length === 0} />
-        <View style={{marginTop: 10}}>
-            <Button title="Cancel / Retake" color="red" onPress={() => navigation.goBack()} />
-        </View>
+        <TouchableOpacity
+          style={[
+            styles.saveButton,
+            items.length === 0 && styles.saveButtonDisabled,
+          ]}
+          onPress={handleSave}
+          disabled={items.length === 0}
+        >
+          <Text style={styles.saveButtonText}>
+            Next — Set Expiry Dates
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.cancelButton}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.cancelButtonText}>Cancel / Retake</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, paddingTop: 60, backgroundColor: '#f5f5f5' },
-  header: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-  list: { flex: 1 },
-  empty: { textAlign: 'center', marginTop: 50, color: '#888' },
-  itemRow: { 
-    flexDirection: 'row', backgroundColor: 'white', padding: 15, 
-    borderRadius: 10, marginBottom: 10, alignItems: 'center',
-    shadowColor: "#000", shadowOffset: {width: 0, height: 1}, shadowOpacity: 0.2
+  container: {
+    flex: 1,
+    padding: 20,
+    paddingTop: 60,
+    backgroundColor: '#F8F9FA',
   },
-  textContainer: { flex: 1 },
-  name: { fontSize: 16, fontWeight: 'bold' },
-  brand: { fontSize: 12, color: '#666' },
-  price: { fontSize: 14, color: '#2ecc71', fontWeight: 'bold' },
-  deleteBtn: { fontSize: 18, padding: 10 },
-  footer: { marginTop: 20, marginBottom: 20 }
+  header: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#1A1A2E',
+  },
+  subheader: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+    marginBottom: 20,
+    marginTop: 4,
+  },
+  list: {
+    flex: 1,
+  },
+  empty: {
+    textAlign: 'center',
+    marginTop: 60,
+    color: '#AAA',
+    fontSize: 16,
+  },
+  deleteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFF0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteBtnText: {
+    fontSize: 14,
+    color: '#E53935',
+    fontWeight: '700',
+  },
+  footer: {
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  saveButton: {
+    backgroundColor: '#2E7D32',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#CCC',
+  },
+  saveButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  cancelButton: {
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E53935',
+  },
+  cancelButtonText: {
+    color: '#E53935',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

@@ -18,10 +18,15 @@ def addToInventory():
     cleaned_items = []
     for item in items_to_add:
         cleaned_items.append({
+           
             "name": item.get("name", "Unknown Item"),
             "brand": item.get("brand", "Unknown Brand"),
+            "price": item.get("price", "0.00"),
+            "source": item.get("source", "unknown"),
+            "category": item.get("category", "uncategorized"),
             "added_date": current_date.strftime("%Y-%m-%d"),
             "expiry_date": expiry_date.strftime("%Y-%m-%d"),
+            "status": "unused"
         })
     try:
         result = db.db.inventory.insert_many(cleaned_items)

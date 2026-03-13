@@ -38,17 +38,18 @@
             "backgroundColor": "#000000"
           }
         }
-      ], [
-      "expo-camera",
-      {
-        "cameraPermission": "Allow Smart Grocery to access your camera to scan receipts."
-      }
-    ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Smart Grocery to access your camera to scan receipts."
+        }
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     }
   }
- 
 }

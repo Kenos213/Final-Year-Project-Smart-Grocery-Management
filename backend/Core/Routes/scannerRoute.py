@@ -1,135 +1,302 @@
 from flask import Blueprint, request, jsonify
 import requests
-import pytesseract
-from PIL import Image, ImageOps, ImageEnhance
-import io
-import base64
-import re
+from google import genai as google_genai
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import base64, os, re, json
+import time
+
+from dotenv import load_dotenv
+load_dotenv()
 
 scan_bp = Blueprint('scan_bp', __name__)
 
+OCR_API_KEY = os.environ.get("OCR_SPACE_API_KEY")
+
+gemini_client = google_genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+UK_SUPERMARKET_BRANDS = [
+    "Tesco", "Sainsbury", "Sainsburys", "ASDA", "Morrisons", "Waitrose",
+    "Lidl", "Aldi", "Co-op", "Coop", "Marks", "Spencer", "M&S",
+    "Iceland", "Farmfoods", "Spar", "Budgens", "Londis"
+]
+
+def strip_brand_prefix(name: str) -> str:
+    """Removes known UK supermarket brand prefixes from a product name."""
+    for brand in UK_SUPERMARKET_BRANDS:
+        pattern = re.compile(rf'^{re.escape(brand)}[\s\'s]*', re.IGNORECASE)
+        name = pattern.sub('', name).strip()
+    return name
+
+def extract_food_items_with_gemini(raw_text: str) -> list:
+
+    prompt = f"""You are a grocery receipt parser specialised in UK supermarket receipts.
+
+You will be given raw OCR text extracted from a receipt. This text may be messy,
+contain abbreviations, or have items on the same line due to OCR column merging.
+
+Your task:
+1. Identify ONLY genuine food and household grocery product lines
+2. Ignore everything else: store name, address, VAT numbers, loyalty card messages,
+   payment terminal output, totals, subtotals, date/time, transaction codes
+3. Clean up abbreviated product names (e.g. 'CHKN BRST 500G' -> 'Chicken Breast 500g')
+4. Remove supermarket own-brand prefixes (e.g. 'Tesco Cinnamon Buns' -> 'Cinnamon Buns')
+5. Match each product to its price where identifiable
+6. Assign a category from: Dairy, Produce, Meat, Fish, Bakery, Beverages, Snacks, Frozen, Pantry, Household, Other
+
+PRICE MATCHING RULES (critical for UK receipts):
+- OCR often separates prices from product names onto different lines
+- A line like '£2.10 £3.65 £5.75' contains prices that correspond IN ORDER to the products found elsewhere
+- Match prices to products by their position/order on the receipt
+- UK prices use the £ symbol and format like £2.10, £0.85, £12.99
+- If a row of prices appears near product names, assign them left-to-right to products in the same order
+- Only use 0.00 if genuinely no price can be identified for that item
+
+Return ONLY a valid JSON array — no markdown, no explanation, no preamble:
+[
+  {{
+    "name": "product name",
+    "price": "0.00",
+    "category": "category"
+  }}
+]
+
+If no grocery items are found, return an empty array: []
+
+Raw OCR receipt text:
+---
+{raw_text}
+---"""
+
+    try:
+   
+        response = gemini_client.models.generate_content(
+        model="gemini-2.5-flash-lite",
+        contents=prompt,
+        config=google_genai.types.GenerateContentConfig(
+        temperature=0.1,
+        response_mime_type="application/json"
+    )
+)
+        raw_response = response.text.strip()
+
+        
+        raw_response = raw_response.replace("```json", "").replace("```", "").strip()
+
+        print("--- GEMINI EXTRACTION OUTPUT ---")
+        print(raw_response)
+        print("--------------------------------")
+
+        items = json.loads(raw_response)
+
+       
+        if not isinstance(items, list):
+            items = items.get("items", []) 
+
+        return items
+
+    except json.JSONDecodeError as e:
+        print(f"  Gemini JSON parse error: {e}")
+        return []
+    except Exception as e:
+        print(f"  Gemini extraction error: {e}")
+        return []
+
+
+
+def enrich_with_open_food_facts(items: list) -> list:
+    enriched = []
+
+    def enrich_single(item):
+        name = strip_brand_prefix(item.get("name", "").strip())
+        price = str(item.get("price", "0.00"))
+        category = item.get("category", "Other")
+
+        if not name:
+            return None
+
+        print(f"  Enriching: '{name}' ({category}) @ £{price}")
+        off_data = search_open_food_facts(name)
+
+        return {
+            "name": off_data["name"],
+            "brand": off_data["brand"],
+            "price": price,
+            "category": category,
+            "verified": off_data["verified"],
+            "image_url": off_data["image_url"],
+            "source": "gemini_text_off_enriched"
+        }
+
+   
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(enrich_single, item): item for item in items}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                enriched.append(result)
+
+    return enriched
+
+
+
+def search_open_food_facts(product_name: str) -> dict:
+  
+    print(f"    OFF search: '{product_name}'")
+    url = "https://world.openfoodfacts.org/cgi/search.pl"
+    params = {
+        "search_terms": product_name,
+        "search_simple": 1,
+        "action": "process",
+        "json": 1,
+        "page_size": 1,
+        "lc": "en",
+        "cc": "gb",
+    }
+    headers = {
+        "User-Agent": "SmartGroceryApp/1.0 (contact: w1919776@westminster.ac.uk)"
+    }
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=3)
+        data = response.json()
+        products = data.get("products", [])
+        if products:
+            top = products[0]
+            verified_name = top.get("product_name", "").strip()
+            verified_brand = top.get("brands", "").strip()
+            if verified_name:
+                print(f"    OFF match: '{verified_name}' by '{verified_brand}'")
+                return {
+                        "name": verified_name.title(),
+                        "brand": verified_brand if verified_brand else "Unknown Brand",
+                        "verified": True,
+                        "image_url": top.get("image_front_small_url", "")
+                    }
+    except Exception as e:
+        print(f"    OFF search error: {e}")
+
+ 
+    return {
+        "name": product_name.title(),
+        "brand": "Unknown Brand",
+        "verified": False,
+        "image_url": ""
+    }
 
 
 def ReceiptQueue(items_list, source_type="unknown"):
-   
     return {
         "status": "success",
         "type": source_type,
         "count": len(items_list),
-        "queue": items_list 
+        "queue": items_list
     }
 
-def textSearch(raw_text):
-    found_items = []
-    lines = raw_text.split('\n')
-    
-   
-    price_pattern = r'(\d+[\.\,]\d{2})'
-    
-
-    def is_junk(text):
-        if len(text) < 3: return True
-     
-        letters = sum(c.isalpha() for c in text)
-        return letters < (len(text) / 2) 
-
-    banned_words = ["TOTAL", "SUBTOTAL", "BALANCE", "VISA", "CHANGE", "CASH", "EUR", "GBP"]
-
-    for line in lines:
-        clean_line = line.strip()
-        price_match = re.search(price_pattern, clean_line)
-        
-        if price_match:
-            name_part = clean_line[:price_match.start()].strip()
-          
-            name_part = re.sub(r'^[\d\s\W]+', '', name_part)
-
-            
-            if not is_junk(name_part) and not any(b in name_part.upper() for b in banned_words):
-                found_items.append({
-                    "name": name_part,
-                    "brand": "Unknown (Receipt)",
-                    "price": price_match.group(1),
-                    "verified": False 
-                })
-                
-    return found_items
 
 def productFunction(barcode_id):
-    print(f"Searching Open Food Facts for: {barcode_id}")
-    
-    
+    print(f"Barcode lookup: {barcode_id}")
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode_id}.json"
-    
-    
-    headers = {
-        'User-Agent': 'SmartGroceryApp/1.0 (contact: w1919776@westminster.ac.uk)'
-    }
-
+    headers = {"User-Agent": "SmartGroceryApp/1.0 (contact: w1919776@westminster.ac.uk)"}
     try:
         response = requests.get(url, headers=headers, timeout=30)
-        
         if response.status_code == 200:
             data = response.json()
-          
-         
             if data.get("status") == 1:
                 product = data.get("product", {})
-                item_name = product.get("product_name", "Unknown Product")
-                brand = product.get("brands", "Unknown Brand")
-                
-               
-                print(f"Found {item_name} by {brand}")
-                return {"name": item_name, "brand": brand}
-            else:
-                print("Barcode not in Open Food Facts database.")
-                return {"name": "Unknown Item", "brand": "Not avalible"}
-        else:
-            print(f"ERROR: API returned status {response.status_code}")
-            
+                return {
+                    "name": product.get("product_name", "Unknown Product"),
+                    "brand": product.get("brands", "Unknown Brand"),
+                    "image_url": product.get("image_front_small_url", "")
+                }
+            return {"name": "Unknown Item", "brand": "Not available"}
     except Exception as e:
-        print("Error when attempting to access API")
-    
+        print(f"Open Food Facts barcode error: {e}")
     return None
+
 
 @scan_bp.route('/ocr', methods=['POST'])
 def handle_ocr_scan():
     data = request.get_json()
     base64_image = data.get('image')
 
+    t0 = time.time()
+
     if not base64_image:
         return jsonify({"error": "No image data received"}), 400
 
+    if "," in base64_image:
+        base64_image = base64_image.split(",")[1]
+
     try:
-   
-        image_data = base64.b64decode(base64_image)
-        img = Image.open(io.BytesIO(image_data))
+        # Stage 1: OCR.space
+        print("Stage 1: Sending to OCR.space...")
+        payload = {
+            'apikey': OCR_API_KEY,
+            'base64Image': f'data:image/jpeg;base64,{base64_image}',
+            'language': 'eng',
+            'isOverlayRequired': False,
+            'detectOrientation': True,
+            'scale': True,
+            'OCREngine': 2,
+            'isTable': True,
+        }
 
-       
-        img = ImageOps.grayscale(img) 
-        # enhancer = ImageEnhance.Contrast(img)
-        # img = enhancer.enhance(2.0)   
+        ocr_response = requests.post(
+            'https://api.ocr.space/parse/image',
+            data=payload,
+            timeout=15
+        )
+        print("Stage 1: OCR.space responded")
         
-        try:
-            img = ImageOps.exif_transpose(img)
-        except:
-            pass 
 
-       
-        raw_text = pytesseract.image_to_string(img) 
-        
-        print("---------------- OCR RAW OUTPUT START ----------------")
+        ocr_result = ocr_response.json()
+
+        if ocr_result.get("IsErroredOnProcessing"):
+            raise Exception(f"OCR.space error: {ocr_result.get('ErrorMessage')}")
+
+        raw_text = ocr_result["ParsedResults"][0]["ParsedText"]
+        print("--- OCR.space RAW OUTPUT ---")
         print(raw_text)
-        print("---------------- OCR RAW OUTPUT END ------------------")
-        
-        
-        items = textSearch(raw_text)
-        
-        return jsonify(ReceiptQueue(items, "ocr_receipt"))
+        print("----------------------------")
+        print(f"⏱ Stage 1 (OCR.space): {time.time() - t0:.1f}s")
+
+        t1 = time.time()
+        # Stage 2: Gemini
+        print("Stage 2: Sending to Gemini...")
+        gemini_items = extract_food_items_with_gemini(raw_text)
+        print(f"Stage 2: Gemini returned {len(gemini_items)} items")
+
+        if not gemini_items:
+            return jsonify({
+                "status": "success",
+                "type": "ocrspace_gemini_receipt",
+                "count": 0,
+                "queue": [],
+                "message": "No grocery items detected."
+            }), 200
+
+        print(f"⏱ Stage 2 (Gemini): {time.time() - t1:.1f}s")
+
+        t2 = time.time()
+        # Stage 3: Open Food Facts
+        print("Stage 3: Enriching with Open Food Facts...")
+        enriched_items = enrich_with_open_food_facts(gemini_items)
+        print(f"Stage 3: Enrichment complete — {len(enriched_items)} items")
+
+        print(f"⏱ Stage 3 (OFF): {time.time() - t2:.1f}s")
+
+        print(f"⏱ TOTAL: {time.time() - t0:.1f}s")
+
+        return jsonify(ReceiptQueue(enriched_items, "ocrspace_gemini_receipt"))
+
+    except requests.exceptions.Timeout:
+        print("TIMEOUT: One of the external APIs timed out")
+        return jsonify({"error": "Processing timed out. Please try again."}), 504
 
     except Exception as e:
-        print("OCR ERROR: There was an error when processing image ")
-        return jsonify({"error": "Failed to process image"}), 500
+        print(f"OCR ERROR: {e}")
+        return jsonify({"error": "Failed to process receipt"}), 500
+
+
 
 
 @scan_bp.route('/barcode', methods=['POST'])
@@ -141,18 +308,23 @@ def handle_barcode():
         return jsonify({"error": "No barcode received"}), 400
 
    
-    result = {"status": "success", "id": barcode_id, "item_name": "Unknown","type" : "Product"}
+    result = {
+        "status": "success",
+        "id": barcode_id,
+        "item_name": "Unknown",
+        "type": "Product"
+    }
 
-    if len(barcode_id) == 13:
+    if len(barcode_id) == 13 or len(barcode_id) == 8:
         product_info = productFunction(barcode_id)
         if product_info:
             result["item_name"] = product_info["name"]
             result["brand"] = product_info["brand"]
+            
+            ## add category
+            ## price
+            ## predictive expiry
 
-    elif len(barcode_id) > 15:
-        result["type"] = "receipt_trigger"
-        result["message"] = "Receipt detected. Switching to camera."
+            
 
     return jsonify(result)
-
-
