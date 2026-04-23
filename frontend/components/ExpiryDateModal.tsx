@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,15 @@ import {
   TouchableOpacity,
   Modal,
   Platform,
+  ScrollView,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import CategoryBadge from './CategoryBadge';
 
-
-
 interface ExpiryDateModalProps {
   visible: boolean;
   item: {
-    name: string;
+    name: string;      // this is the item that the user is setting the expiry date for so we can show a preview of it in the modal
     brand?: string;
     category?: string;
     expiry_days?: number;
@@ -24,7 +23,7 @@ interface ExpiryDateModalProps {
   onClose: () => void;
 }
 
-const QUICK_OPTIONS = [
+const quick_options = [
   { days: 1, label: 'Tomorrow', subtitle: 'Reduced item' },
   { days: 2, label: '2 days', subtitle: 'Very short life' },
   { days: 3, label: '3 days', subtitle: 'Short life' },
@@ -40,20 +39,26 @@ export default function ExpiryDateModal({
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
 
+  // Reset state when modal opens with a new item
+  useEffect(() => {
+    if (visible && item) {
+      setSelectedDate(new Date());
+      setShowPicker(false);
+    }
+  }, [visible, item]);
+
   if (!item) return null;
 
- 
   const daysFromNow = (days: number): Date => {
     const date = new Date();
-    date.setDate(date.getDate() + days);
+    date.setDate(date.getDate() + days);  // gets a date that is a certain number of days away
     return date;
   };
-
 
   const formatDate = (date: Date): string => {
     return date.toLocaleDateString('en-GB', {
       day: 'numeric',
-      month: 'short',
+      month: 'short',     // formating the date entered
       year: 'numeric',
     });
   };
@@ -76,90 +81,112 @@ export default function ExpiryDateModal({
     <Modal visible={visible} transparent animationType="slide">
       <View style={styles.overlay}>
         <View style={styles.modal}>
-         
-          <View style={styles.header}>
-            <Text style={styles.title}>Set Expiry Date</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* Header */}
+            <View style={styles.header}>
+              <Text style={styles.title}>Set Expiry Date</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                <Text style={styles.closeBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
 
-    
-          <View style={styles.itemPreview}>
-            <View style={styles.previewInfo}>
-              <Text style={styles.previewName}>{item.name}</Text>
-              <Text style={styles.previewBrand}>{item.brand || 'Unknown'}</Text>
-              {item.category ? (
-                <CategoryBadge category={item.category} size="small" />
+            {/* Item Preview */}
+            <View style={styles.itemPreview}>
+              <View style={styles.previewInfo}>
+                <Text style={styles.previewName}>{item.name}</Text>
+                <Text style={styles.previewBrand}>{item.brand || 'Unknown'}</Text>
+                {item.category ? (
+                  <CategoryBadge category={item.category} size="small" />
+                ) : null}
+              </View>
+              {item.expiry_days ? (
+                <View style={styles.suggestedBadge}>
+                  <Text style={styles.suggestedText}>
+                    ~{item.expiry_days}d suggested
+                  </Text>
+                </View>
               ) : null}
             </View>
-            {item.expiry_days ? (
-              <View style={styles.suggestedBadge}>
-                <Text style={styles.suggestedText}>
-                  ~{item.expiry_days}d suggested
-                </Text>
-              </View>
-            ) : null}
-          </View>
 
-    
-          <Text style={styles.sectionLabel}>Quick select</Text>
-          <View style={styles.quickGrid}>
-            {QUICK_OPTIONS.map((opt) => (
-              <TouchableOpacity
-                key={opt.days}
-                style={[
-                  styles.quickOption,
-                  selectedDate.toDateString() ===
-                    daysFromNow(opt.days).toDateString() &&
-                    styles.quickOptionSelected,
-                ]}
-                onPress={() => handleQuickSelect(opt.days)}
-              >
-                <Text
+            {/* Quick Options */}
+            <Text style={styles.sectionLabel}>Quick select</Text>
+            <View style={styles.quickGrid}>
+              {quick_options.map((opt) => (
+                <TouchableOpacity
+                  key={opt.days}
                   style={[
-                    styles.quickDays,
+                    styles.quickOption,
                     selectedDate.toDateString() ===
                       daysFromNow(opt.days).toDateString() &&
-                      styles.quickDaysSelected,
+                      styles.quickOptionSelected,
                   ]}
+                  onPress={() => handleQuickSelect(opt.days)}
                 >
-                  {opt.label}
-                </Text>
-                <Text style={styles.quickSubtitle}>{opt.subtitle}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+                  <Text
+                    style={[
+                      styles.quickDays,
+                      selectedDate.toDateString() ===
+                        daysFromNow(opt.days).toDateString() &&
+                        styles.quickDaysSelected,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                  <Text style={styles.quickSubtitle}>{opt.subtitle}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
-        
-          <Text style={styles.orDivider}>or pick exact date</Text>
+            {/* Date Picker */}
+            <Text style={styles.orDivider}>or pick exact date</Text>
 
-          <TouchableOpacity
-            style={styles.datePickerButton}
-            onPress={() => setShowPicker(true)}
-          >
-            <Text style={styles.datePickerIcon}>📅</Text>
-            <Text style={styles.datePickerText}>
-              {formatDate(selectedDate)}
-            </Text>
-          </TouchableOpacity>
+            {Platform.OS === 'ios' ? (
+              <View style={{
+                backgroundColor: '#343434c4',
+                borderRadius: 12,
+                marginBottom: 10,
+                overflow: 'hidden',
+              }}>
+                <DateTimePicker
+                  value={selectedDate}
+                  mode="date"
+                  display="spinner"
+                  minimumDate={new Date()}
+                  onChange={handleDateChange}
+                  style={{ height: 180 }}
+                />
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={() => setShowPicker(true)}
+                >
+                  
+                  <Text style={styles.datePickerText}>
+                    {formatDate(selectedDate)}
+                  </Text>
+                </TouchableOpacity>
 
-          {showPicker && (
-            <DateTimePicker
-              value={selectedDate}
-              mode="date"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              minimumDate={new Date()}
-              onChange={handleDateChange}
-            />
-          )}
+                {showPicker && (
+                  <DateTimePicker
+                    value={selectedDate}
+                    mode="date"
+                    display="default"
+                    minimumDate={new Date()}
+                    onChange={handleDateChange}
+                  />
+                )}
+              </>
+            )}
 
-         
-          <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm}>
-            <Text style={styles.confirmBtnText}>
-              Confirm — {formatDate(selectedDate)}
-            </Text>
-          </TouchableOpacity>
+            {/* Confirm */}
+            <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm}>
+              <Text style={styles.confirmBtnText}>
+                Confirm — {formatDate(selectedDate)}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -178,6 +205,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     padding: 24,
     paddingBottom: 40,
+    maxHeight: '90%',
   },
   header: {
     flexDirection: 'row',
@@ -203,8 +231,6 @@ const styles = StyleSheet.create({
     color: '#888',
     fontWeight: '600',
   },
-
-
   itemPreview: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -238,8 +264,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1565C0',
   },
-
-  // Quick grid
   sectionLabel: {
     fontSize: 12,
     fontWeight: '600',
@@ -280,16 +304,12 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 2,
   },
-
- 
   orDivider: {
     textAlign: 'center',
     fontSize: 12,
     color: '#BBB',
     marginBottom: 12,
   },
-
-
   datePickerButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -309,8 +329,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1A1A2E',
   },
-
-
   confirmBtn: {
     backgroundColor: '#2E7D32',
     padding: 16,

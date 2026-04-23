@@ -1,16 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
+import {View,Text,StyleSheet,ScrollView,TouchableOpacity,Alert} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { core_URL } from './HostIp';
-import ProductCard from './components/ProductCard';
-import ExpiryDateModal from './components/ExpiryDateModal';
+import ProductCard from '../components/ProductCard';
+import ExpiryDateModal from '../components/ExpiryDateModal';
+import { authFetch } from '../constants/api';
+import { scheduleAllReminders } from '../constants/Notifications';
 
 
 
@@ -18,7 +12,7 @@ const PERISHABLE_CATEGORIES = new Set([
   'Dairy', 'Produce', 'Meat', 'Fish', 'Bakery',
 ]);
 
-// Default shelf life values
+// Default constants shelf life values
 const SHELF_LIFE_DEFAULTS: Record<string, number> = {
   Dairy: 7,
   Produce: 5,
@@ -34,14 +28,14 @@ const SHELF_LIFE_DEFAULTS: Record<string, number> = {
 };
 
 
-const daysFromNow = (days: number): string => {
+const daysFromNow = (days: number): string => { // this function takes in a number of days and returns a date string that is that many days from the current date
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().split('T')[0];
+  return date.toISOString().split('T')[0];  
 };
 
 
-const formatDate = (isoDate: string): string => {
+const formatDate = (isoDate: string): string => { // this function takes in a date string is iso format and returns a formated datae
   const date = new Date(isoDate);
   return date.toLocaleDateString('en-GB', {
     day: 'numeric',
@@ -49,16 +43,19 @@ const formatDate = (isoDate: string): string => {
   });
 };
 
-export default function ExpiryScreen() {
+export default function ExpiryScreen() { // this is the screen where the user can set the expiry dates for their items and then save them to thier iventory
+  
   const router = useRouter();
   const { confirmedItems: rawItems } = useLocalSearchParams();
 
 
-  const parsed = rawItems ? JSON.parse(rawItems as string) : [];
+  const parsed = rawItems ? JSON.parse(rawItems as string) : []; // i parse the items that are passed in from the previous screen 
+  // and then i add some additional properties to them such as whether they are perishable or not and their estimated shelf life based on their category. 
+  // This is so that i can display them differently in the UI and also provide default expiry dates for non-perishable items that the user can override if they want to.
 
 
   const [items, setItems] = useState(() =>
-    parsed.map((item: any) => {
+    parsed.map((item: any) => { // looking through each item in the parse array
       const category = item.category || 'Other';
       const isPerishable = PERISHABLE_CATEGORIES.has(category);
       const defaultDays = SHELF_LIFE_DEFAULTS[category] || 30;
@@ -95,7 +92,7 @@ export default function ExpiryScreen() {
   }, [items]);
 
 
-  const pendingCount = items.filter(
+  const pendingCount = items.filter( // this is counting how many items are perishable 
     (i: any) => i.is_perishable && !i.expiry_date
   ).length;
 
@@ -121,7 +118,8 @@ export default function ExpiryScreen() {
   };
 
 
-  const handleSkipAll = () => {
+  const handleSkipAll = () => { // this function is called when the user clicks the skip all button it just fills in estimated dates for all perishable items that dont have dates 
+  // and then updates the state with the new items array so that the user can then save them to their inventory
     const updated = items.map((item: any) => {
       if (item.is_perishable && !item.expiry_date) {
         return {
@@ -137,17 +135,23 @@ export default function ExpiryScreen() {
   };
 
 
-  const handleSaveAll = async () => {
+  const handleSaveAll = async () => { // when this route is called via a button click it send the items array to the backened
     try {
-      const response = await fetch(`${core_URL}/inventory/add`, {
+      const response = await authFetch(`/inventory/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items }),
       });
 
+      if (!response){
+        Alert.alert('Error', 'Failed to save items to inventory.');
+        return;
+      }
+
       const result = await response.json();
 
       if (result.status === 'success') {
+        await scheduleAllReminders(items);
         Alert.alert('Success', `${items.length} items added to Inventory!`);
        router.replace('/');;
       }
@@ -168,9 +172,8 @@ export default function ExpiryScreen() {
   
       {pendingCount > 0 && (
         <View style={styles.tipBanner}>
-          <Text style={styles.tipIcon}>💡</Text>
           <Text style={styles.tipText}>
-            <Text style={styles.tipBold}>Reduced sticker? </Text>
+            <Text style={styles.tipBold}>Reduced Item? </Text>
             Tap the item to enter the exact date from the packaging.
           </Text>
         </View>
@@ -187,7 +190,8 @@ export default function ExpiryScreen() {
               </Text>
             </View>
 
-            {perishable.map(({ item, index }) => (
+            {/* looping through perishable items assigning values and using the index and as a key for referenceing*/}
+            {perishable.map(({ item, index }) => ( 
               <ProductCard
                 key={`p-${index}`}
                 name={item.name}
@@ -205,7 +209,7 @@ export default function ExpiryScreen() {
                       </View>
                     ) : (
                       <View style={styles.needsDateBadge}>
-                        <Text style={styles.needsDateText}>📅 Set date</Text>
+                        <Text style={styles.needsDateText}> Set date</Text>
                       </View>
                     )}
                     <Text style={styles.expiryHint}>
@@ -226,7 +230,6 @@ export default function ExpiryScreen() {
         {nonPerishable.length > 0 && (
           <>
             <View style={styles.autoSummary}>
-              <Text style={styles.autoIcon}>✅</Text>
               <Text style={styles.autoText}>
                 <Text style={styles.autoBold}>
                   {nonPerishable.length} items auto-assigned
@@ -241,7 +244,7 @@ export default function ExpiryScreen() {
                 Auto-Assigned ({nonPerishable.length})
               </Text>
             </View>
-
+            {/* looping through non-perishable items */}
             {nonPerishable.map(({ item, index }) => (
               <ProductCard
                 key={`np-${index}`}

@@ -1,10 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-const CATEGORY_COLOURS: Record<string, { bg: string; text: string }> = {
+const categoryColours: Record<string, { bg: string; text: string }> = {
   Dairy:      { bg: '#E3F2FD', text: '#1565C0' },
   Produce:    { bg: '#E8F5E9', text: '#2E7D32' },
-  Meat:       { bg: '#FCE4EC', text: '#C62828' },
+  Meat:       { bg: '#FCE4EC', text: '#C62828' },   ///each category is asigned a specific colour scheme to make it easier for the user  to indentify the category
   Fish:       { bg: '#E0F7FA', text: '#00838F' },
   Bakery:     { bg: '#FFF8E1', text: '#F57F17' },
   Beverages:  { bg: '#F3E5F5', text: '#7B1FA2' },
@@ -17,14 +17,14 @@ const CATEGORY_COLOURS: Record<string, { bg: string; text: string }> = {
 
 interface CategoryBadgeProps {
   category: string;
-  size?: 'small' | 'default';
+  size?: 'small' | 'default'; 
 }
 
 export default function CategoryBadge({
   category,
-  size = 'default',
+  size = 'default',     /// component that renders a badge with the category name and appropriate colours based on the category
 }: CategoryBadgeProps) {
-  const colours = CATEGORY_COLOURS[category] || CATEGORY_COLOURS['Other'];
+  const colours = categoryColours[category] || categoryColours['Other'];
 
   return (
     <View

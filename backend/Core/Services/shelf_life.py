@@ -1,20 +1,12 @@
-# NOVEL CODE: Waterfall Expiry Resolution System
-# Priority: Manual Override → Open Food Facts → USDA FoodKeeper → Category Heuristic
-# Perishable categories require manual user input; non-perishable auto-assign estimates
-# Addresses reduced-to-clear edge case by flagging perishables for explicit date entry
 
-# Categories classified as perishable — these MUST prompt the user for manual expiry input
-# Rationale: items in these categories are commonly found on reduced-to-clear shelves,
-# meaning category-based estimates would be unreliable and potentially misleading
-PERISHABLE_CATEGORIES = {"Dairy", "Produce", "Meat", "Fish", "Bakery"}
 
-# Categories classified as non-perishable — safe to auto-assign estimates
-# Rationale: long shelf life means category defaults are reliably accurate
-NON_PERISHABLE_CATEGORIES = {"Frozen", "Pantry", "Household", "Beverages", "Snacks", "Other"}
+# Categories classified as perishable 
+PERISHABLES = {"Dairy", "Produce", "Meat", "Fish", "Bakery"}
 
-# Category-based shelf life defaults (in days from purchase date)
-# Sources: USDA FoodKeeper guidelines, UK Food Standards Agency recommendations
-# These serve as Tier 4 fallback in the waterfall and as suggestions for perishable items
+# Categories classified as non-perishable 
+NON_PERISHABLE = {"Frozen", "Pantry", "Household", "Beverages", "Snacks", "Other"}
+
+# Category-based shelf life defaults 
 SHELF_LIFE_DEFAULTS = {
     # Perishable — used as SUGGESTIONS only, not auto-assigned
     "Dairy":      7,
@@ -32,25 +24,22 @@ SHELF_LIFE_DEFAULTS = {
     "Other":      30,
 }
 
+# This file contains the core logic for classifying items by expiry and perishability,
+# which feeds into the frontend's ExpiryScreen and the analysis insights.
+
+# The classify_expiry function applies the waterfall logic to determine an item's expiry date and source.
+# The classify_all_items function processes a list of items and separates them into perishable and non
+
+###  water fall priority for expiry date resolution:
+# 1. manual_expiry  — user override (set later on frontend)
+# 2. off_expiry     — Open Food Facts expiration_date field
+# 3. usda_days      — USDA FoodKeeper lookup (future enhancement)
+# 4. category_days  — category heuristic default
 
 def classify_expiry(item: dict) -> dict:
-    """
-    Applies the waterfall expiry resolution to a single item.
-    Returns the item enriched with expiry metadata for the frontend.
-
-    Waterfall priority:
-        1. manual_expiry  — user override (set later on frontend)
-        2. off_expiry     — Open Food Facts expiration_date field
-        3. usda_days      — USDA FoodKeeper lookup (future enhancement)
-        4. category_days  — category heuristic default
-
-    Args:
-        item: dict with at minimum 'name' and 'category'
-    Returns:
-        item enriched with: expiry_days, expiry_source, needs_manual_date, is_perishable
-    """
+    
     category = item.get("category", "Other")
-    is_perishable = category in PERISHABLE_CATEGORIES
+    is_perishable = category in PERISHABLES
 
     # Tier 2: Check if Open Food Facts returned an expiry date
     off_expiry = item.get("off_expiry_date", None)
@@ -76,16 +65,7 @@ def classify_expiry(item: dict) -> dict:
 
 
 def classify_all_items(items: list) -> dict:
-    """
-    Classifies a list of items and separates them into two groups
-    for the frontend ExpiryScreen layout.
-
-    Returns:
-        {
-            "perishable": [...],      -- items needing manual date input
-            "non_perishable": [...],  -- items with auto-assigned estimates
-        }
-    """
+    
     perishable = []
     non_perishable = []
 

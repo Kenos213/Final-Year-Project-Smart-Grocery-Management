@@ -4,13 +4,14 @@ import CategoryBadge from './CategoryBadge';
 
 
 
-const PLACEHOLDER_IMAGE = 'https://via.placeholder.com/80x80.png?text=No+Image';
+const placeholder_Image = require('../assets/images/questionMarkIcon.png');
 
-interface ProductCardProps {
+interface ProductCardProps { // this is the type for the props that the product card component takes in. It includes details about the product to display 
+                            // as well as some optional props for extra functionality like a button on the right side of the card or a custom footer
   name: string;
   brand?: string;
   price?: string;
-  category?: string;
+  category?: string;  
   image_url?: string;
 
   rightAction?: React.ReactNode;
@@ -20,7 +21,7 @@ interface ProductCardProps {
   onPress?: () => void;
 }
 
-export default function ProductCard({
+export default function ProductCard({ // this is the product card component that is used to display each item in the users inventory and in the recipe suggestions
   name,
   brand,
   price,
@@ -30,16 +31,16 @@ export default function ProductCard({
   footer,
   onPress,
 }: ProductCardProps) {
-  const Wrapper = onPress ? TouchableOpacity : View;
+  const Wrapper = onPress ? TouchableOpacity : View; //if the onpress prop is passed in then the whole care can become a button else it will just. be a  static card
 
   return (
     <Wrapper
       style={styles.card}
-      {...(onPress ? { onPress, activeOpacity: 0.7 } : {})}
+      {...(onPress ? { onPress, activeOpacity: 0.7 } : {})} // if the onpress prop is passed in then we add the onPress and activeOpacity props to the wrapper to make it a button with a visual feedback on press
     >
     
       <Image
-        source={{ uri: image_url || PLACEHOLDER_IMAGE }}
+        source={{ uri: image_url || placeholder_Image }}
         style={styles.image}
         resizeMode="contain"
       />

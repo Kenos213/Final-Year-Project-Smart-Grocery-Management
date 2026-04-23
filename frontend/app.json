@@ -45,7 +45,8 @@
           "cameraPermission": "Allow Smart Grocery to access your camera to scan receipts."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

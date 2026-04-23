@@ -30,7 +30,7 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files i will allow env to be pushed to git
 .env*.local
 
 # typescript

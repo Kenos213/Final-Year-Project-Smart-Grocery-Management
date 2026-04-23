@@ -9,10 +9,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 scan_bp = Blueprint('scan_bp', __name__)
-
+# API keys 
 OCR_API_KEY = os.environ.get("OCR_SPACE_API_KEY")
-
 gemini_client = google_genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
 
 UK_SUPERMARKET_BRANDS = [
     "Tesco", "Sainsbury", "Sainsburys", "ASDA", "Morrisons", "Waitrose",
@@ -20,13 +20,16 @@ UK_SUPERMARKET_BRANDS = [
     "Iceland", "Farmfoods", "Spar", "Budgens", "Londis"
 ]
 
+#Removes known UK supermarket brand prefixes from a product name.
 def strip_brand_prefix(name: str) -> str:
-    """Removes known UK supermarket brand prefixes from a product name."""
     for brand in UK_SUPERMARKET_BRANDS:
         pattern = re.compile(rf'^{re.escape(brand)}[\s\'s]*', re.IGNORECASE)
         name = pattern.sub('', name).strip()
     return name
 
+# this is the main function that sends the raw OCR text to gemini and gets a back a cleaned up list of products with prices and categories.
+# the reason for using gemini is that OCR text from receipts can be very messy and unstructured, and gemini can apply the complex logic needed to extract just the relevant product lines, match them to prices and simutaneously categorize them  all in one step. 
+# This keeps our backend code simple and leverages Gemini's strengths in understanding unstructured text.
 def extract_food_items_with_gemini(raw_text: str) -> list:
 
     prompt = f"""You are a grocery receipt parser specialised in UK supermarket receipts.
@@ -70,11 +73,11 @@ Raw OCR receipt text:
     try:
    
         response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents=prompt,
-        config=google_genai.types.GenerateContentConfig(
-        temperature=0.1,
-        response_mime_type="application/json"
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+            config=google_genai.types.GenerateContentConfig(
+            temperature=0.1,
+            response_mime_type="application/json"
     )
 )
         raw_response = response.text.strip()
@@ -102,7 +105,7 @@ Raw OCR receipt text:
         return []
 
 
-
+# Category heuristic defaults (Tier 4 fallback)
 def enrich_with_open_food_facts(items: list) -> list:
     enriched = []
 
@@ -138,7 +141,7 @@ def enrich_with_open_food_facts(items: list) -> list:
     return enriched
 
 
-
+# this function takes the cleaned list of products from gemini and sends each one to open food facts to get verified product data
 def search_open_food_facts(product_name: str) -> dict:
   
     print(f"    OFF search: '{product_name}'")
@@ -182,7 +185,7 @@ def search_open_food_facts(product_name: str) -> dict:
         "image_url": ""
     }
 
-
+# this function formats the final response to the front end after all the processing is done.
 def ReceiptQueue(items_list, source_type="unknown"):
     return {
         "status": "success",
@@ -192,27 +195,57 @@ def ReceiptQueue(items_list, source_type="unknown"):
     }
 
 
+# Maps Open Food Facts category tags to app's category system
+OFF_CATEGORY_MAP = {
+    "meats": "Meat", "poultry": "Meat", "beef": "Meat", "chicken": "Meat", "pork": "Meat",
+    "fish": "Fish", "seafood": "Fish", "salmon": "Fish", "tuna": "Fish",
+    "dairy": "Dairy", "milk": "Dairy", "cheese": "Dairy", "yogurt": "Dairy", "butter": "Dairy",
+    "bread": "Bakery", "bakery": "Bakery", "pastries": "Bakery", "cakes": "Bakery",
+    "fruit": "Produce", "vegetable": "Produce", "salad": "Produce",
+    "frozen": "Frozen", "ice cream": "Frozen",
+    "beverage": "Beverages", "drink": "Beverages", "juice": "Beverages", "water": "Beverages", "soda": "Beverages",
+    "snack": "Snacks", "crisp": "Snacks", "chocolate": "Snacks", "sweet": "Snacks", "biscuit": "Snacks",
+    "cereal": "Pantry", "pasta": "Pantry", "rice": "Pantry", "sauce": "Pantry", "soup": "Pantry", "canned": "Pantry",
+    "cleaning": "Household", "detergent": "Household", "tissue": "Household",
+}
+
+#Checks OFF category string against our mapping
+def classify_off_category(categories_tag: str) -> str:
+    
+    lower = categories_tag.lower()
+    for keyword, category in OFF_CATEGORY_MAP.items():
+        if keyword in lower:
+            return category
+    return "Other"
+
+# looks up a product on open food faacts by barcode and returns its metadata
 def productFunction(barcode_id):
     print(f"Barcode lookup: {barcode_id}")
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode_id}.json"
     headers = {"User-Agent": "SmartGroceryApp/1.0 (contact: w1919776@westminster.ac.uk)"}
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
             if data.get("status") == 1:
                 product = data.get("product", {})
+                
+                # Get category from OFF's categories field
+                off_categories = product.get("categories", "")
+                category = classify_off_category(off_categories)
+
                 return {
                     "name": product.get("product_name", "Unknown Product"),
                     "brand": product.get("brands", "Unknown Brand"),
-                    "image_url": product.get("image_front_small_url", "")
+                    "image_url": product.get("image_front_small_url", ""),
+                    "category": category
                 }
-            return {"name": "Unknown Item", "brand": "Not available"}
+            return {"name": "Unknown Item", "brand": "Not available", "image_url": "", "category": "Other"}
     except Exception as e:
         print(f"Open Food Facts barcode error: {e}")
     return None
 
-
+#This route handles the OCR receipt scanning as it recives the base64 image from the front end and then sends it to the OCR space API
 @scan_bp.route('/ocr', methods=['POST'])
 def handle_ocr_scan():
     data = request.get_json()
@@ -227,8 +260,8 @@ def handle_ocr_scan():
         base64_image = base64_image.split(",")[1]
 
     try:
-        # Stage 1: OCR.space
-        print("Stage 1: Sending to OCR.space...")
+        # Stage 1: OCR space
+        print("Stage 1: Sending to OCR.space")
         payload = {
             'apikey': OCR_API_KEY,
             'base64Image': f'data:image/jpeg;base64,{base64_image}',
@@ -257,7 +290,7 @@ def handle_ocr_scan():
         print("--- OCR.space RAW OUTPUT ---")
         print(raw_text)
         print("----------------------------")
-        print(f"⏱ Stage 1 (OCR.space): {time.time() - t0:.1f}s")
+        print(f"Stage 1 (OCR.space): {time.time() - t0:.1f}s")
 
         t1 = time.time()
         # Stage 2: Gemini
@@ -282,9 +315,9 @@ def handle_ocr_scan():
         enriched_items = enrich_with_open_food_facts(gemini_items)
         print(f"Stage 3: Enrichment complete — {len(enriched_items)} items")
 
-        print(f"⏱ Stage 3 (OFF): {time.time() - t2:.1f}s")
+        print(f"Stage 3 (OFF): {time.time() - t2:.1f}s")
 
-        print(f"⏱ TOTAL: {time.time() - t0:.1f}s")
+        print(f"TOTAL: {time.time() - t0:.1f}s")
 
         return jsonify(ReceiptQueue(enriched_items, "ocrspace_gemini_receipt"))
 
@@ -298,7 +331,7 @@ def handle_ocr_scan():
 
 
 
-
+#this function handles singular scanned items and gets their specified data
 @scan_bp.route('/barcode', methods=['POST'])
 def handle_barcode():
     data = request.get_json()
@@ -307,11 +340,13 @@ def handle_barcode():
     if not barcode_id:
         return jsonify({"error": "No barcode received"}), 400
 
-   
     result = {
         "status": "success",
         "id": barcode_id,
         "item_name": "Unknown",
+        "brand": "Unknown Brand",
+        "category": "Other",
+        "image_url": "",
         "type": "Product"
     }
 
@@ -320,11 +355,7 @@ def handle_barcode():
         if product_info:
             result["item_name"] = product_info["name"]
             result["brand"] = product_info["brand"]
-            
-            ## add category
-            ## price
-            ## predictive expiry
-
-            
+            result["image_url"] = product_info.get("image_url", "")
+            result["category"] = product_info.get("category", "Other")
 
     return jsonify(result)
