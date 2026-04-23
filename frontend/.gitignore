@@ -31,7 +31,7 @@ yarn-error.*
 *.pem
 
 # local env files i will allow env to be pushed to git
-.env*.local
+#.env*.local
 
 # typescript
 *.tsbuildinfo
